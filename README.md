@@ -1,36 +1,142 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Civic Reporting System
+
+A web-based platform that allows citizens to report civic issues such as infrastructure problems, environmental concerns, or public service requests directly to local authorities.
+
+## Features
+
+- User Authentication (Login/Signup)
+- Report Submission with descriptions, images, and geolocation
+- Report Dashboard for viewing submitted reports and their status
+- Admin Dashboard for managing reports
+- Camera and geolocation integration
+
+## Technology Stack
+
+- **Frontend**: React 19.1.0, Next.js 15.5.3, Tailwind CSS, TypeScript
+- **Backend**: Next.js API Routes, Prisma ORM, PostgreSQL
+- **Authentication**: next-auth, bcryptjs
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js 18.x or higher
+- npm or yarn
+- PostgreSQL database (optional - in-memory database provided for development)
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd civic-reporting-system
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Set up the database:
+   
+   **Option 1: PostgreSQL (Recommended for production)**
+   - Install PostgreSQL on your system
+   - Create a database named `civic_reporting_system`
+   - Update the `DATABASE_URL` in the `.env` file with your database credentials
+   - Run the database setup:
+     ```bash
+     npm run db:setup
+     ```
+
+   **Option 2: In-Memory Database (For development/testing)**
+   - The system automatically falls back to an in-memory database if PostgreSQL is not available
+   - No additional setup required
+
+4. Start the development server:
+   ```bash
+   npm run dev
+   ```
+
+5. Open your browser and navigate to `http://localhost:3000` (or the port shown in the terminal)
+
+### Default User Accounts
+
+For testing purposes, the system creates the following accounts automatically:
+
+- **Admin User**: 
+  - Email: `admin@civicreporter.com`
+  - Password: `admin123`
+
+- **Regular User**: 
+  - Email: `user@civicreporter.com`
+  - Password: `user123`
+
+### Available Scripts
+
+- `npm run dev` - Start the development server
+- `npm run build` - Build the application for production
+- `npm run start` - Start the production server
+- `npm run lint` - Run ESLint
+- `npm run db:setup` - Set up the database (PostgreSQL)
+- `npm run prisma:generate` - Generate Prisma client
+- `npm run prisma:migrate` - Run Prisma migrations
+- `npm run prisma:studio` - Open Prisma Studio
+
+## Project Structure
+
+```
+.
+├── prisma/                 # Prisma schema and migrations
+├── public/                 # Static assets and test files
+├── src/
+│   ├── app/                # Next.js app router pages
+│   │   ├── api/            # API routes
+│   │   ├── dashboard/      # Admin dashboard page
+│   │   ├── report/         # Report submission page
+│   │   └── ...             # Other pages
+│   ├── components/         # React components
+│   └── lib/                # Utility functions and database clients
+├── .env                    # Environment variables
+├── next.config.ts          # Next.js configuration
+├── package.json            # Project dependencies and scripts
+└── tsconfig.json           # TypeScript configuration
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## API Endpoints
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `POST /api/auth/signup` - Create a new user
+- `POST /api/auth/login` - Authenticate a user
+- `POST /api/reports` - Create a new report
+- `GET /api/reports` - Get all reports
+- `GET /api/reports/[id]` - Get a specific report
+- `PATCH /api/reports/[id]` - Update a report's status
+- `GET /api/test-db` - Test database connection
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Development
 
-## Learn More
+The application uses Next.js App Router with server components for API handling. The database layer uses Prisma ORM with a fallback to an in-memory database for development.
 
-To learn more about Next.js, take a look at the following resources:
+## Troubleshooting
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. **Database Connection Issues**: 
+   - Ensure PostgreSQL is running
+   - Check your `DATABASE_URL` in the `.env` file
+   - Run `npm run db:setup` to initialize the database
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+2. **Port Conflicts**:
+   - The app will automatically use an available port if 3000 is in use
 
-## Deploy on Vercel
+3. **Missing Dependencies**:
+   - Run `npm install` to ensure all dependencies are installed
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Contributing
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a pull request
+
+## License
+
+This project is licensed under the MIT License.
