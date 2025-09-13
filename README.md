@@ -2,6 +2,8 @@
 
 A web-based platform that allows citizens to report civic issues such as infrastructure problems, environmental concerns, or public service requests directly to local authorities.
 
+This application is now deployed on Vercel and can be accessed at: [INSERT_YOUR_VERCEL_URL_HERE]
+
 ## Features
 
 - User Authentication (Login/Signup)
@@ -12,7 +14,7 @@ A web-based platform that allows citizens to report civic issues such as infrast
 
 ## Technology Stack
 
-- **Frontend**: React 19.1.0, Next.js 15.5.3, Tailwind CSS, TypeScript
+- **Frontend**: React 18.2.0, Next.js 15.5.3, Tailwind CSS, JavaScript
 - **Backend**: Next.js API Routes, Prisma ORM, PostgreSQL
 - **Authentication**: next-auth, bcryptjs
 
@@ -45,7 +47,7 @@ A web-based platform that allows citizens to report civic issues such as infrast
    - Update the `DATABASE_URL` in the `.env` file with your database credentials
    - Run the database setup:
      ```bash
-     npm run db:setup
+     npm run setup-db
      ```
 
    **Option 2: In-Memory Database (For development/testing)**
@@ -77,10 +79,10 @@ For testing purposes, the system creates the following accounts automatically:
 - `npm run build` - Build the application for production
 - `npm run start` - Start the production server
 - `npm run lint` - Run ESLint
-- `npm run db:setup` - Set up the database (PostgreSQL)
+- `npm run setup-db` - Set up the database (PostgreSQL)
 - `npm run prisma:generate` - Generate Prisma client
 - `npm run prisma:migrate` - Run Prisma migrations
-- `npm run prisma:studio` - Open Prisma Studio
+- `npm run prisma:seed` - Seed the database with test data
 
 ## Project Structure
 
@@ -97,9 +99,11 @@ For testing purposes, the system creates the following accounts automatically:
 │   ├── components/         # React components
 │   └── lib/                # Utility functions and database clients
 ├── .env                    # Environment variables
-├── next.config.ts          # Next.js configuration
+├── next.config.js          # Next.js configuration
 ├── package.json            # Project dependencies and scripts
-└── tsconfig.json           # TypeScript configuration
+├── jsconfig.json           # JavaScript configuration
+├── tailwind.config.js      # Tailwind CSS configuration
+└── postcss.config.mjs      # PostCSS configuration
 ```
 
 ## API Endpoints
