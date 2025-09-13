@@ -1,26 +1,15 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import 'leaflet/dist/leaflet.css';
+import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
+import L from 'leaflet';
 
-// Component to handle map events - only renders when hooks are available
+// Component to handle map events
 const MapClickHandler = ({ 
   setLocation,
   setMapCenter
 }) => {
-  const [mapEventsLoaded, setMapEventsLoaded] = useState(false);
-  const [useMapEvents, setUseMapEvents] = useState(null);
-  
-  useEffect(() => {
-    import('react-leaflet').then((leaflet) => {
-      setUseMapEvents(() => leaflet.useMapEvents);
-      setMapEventsLoaded(true);
-    }).catch((error) => {
-      console.error('Failed to load react-leaflet:', error);
-      setMapEventsLoaded(true);
-    });
-  }, []);
-
   // Create a stable reference for the event handlers
   const eventHandlers = useMemo(() => ({
     click(e) {
@@ -32,49 +21,12 @@ const MapClickHandler = ({
     },
   }), [setLocation, setMapCenter]);
 
-  // Only render the actual hook component when hooks are loaded
-  if (!useMapEvents || !mapEventsLoaded) {
-    return null;
-  }
-
-  // This component will only be rendered when useMapEvents is available
-  return <MapClickHandlerImpl useMapEvents={useMapEvents} eventHandlers={eventHandlers} />;
-};
-
-// Separate component that actually calls the hooks
-const MapClickHandlerImpl = ({ useMapEvents, eventHandlers }) => {
-  // Now we can safely call the hook since we know it's available
   useMapEvents(eventHandlers);
   return null;
 };
 
-// Component to control map view - only renders when hooks are available
+// Component to control map view
 const MapController = ({ location }) => {
-  const [mapLoaded, setMapLoaded] = useState(false);
-  const [useMap, setUseMap] = useState(null);
-  
-  useEffect(() => {
-    import('react-leaflet').then((leaflet) => {
-      setUseMap(() => leaflet.useMap);
-      setMapLoaded(true);
-    }).catch((error) => {
-      console.error('Failed to load react-leaflet:', error);
-      setMapLoaded(true);
-    });
-  }, []);
-
-  // Only render the actual hook component when hooks are loaded
-  if (!useMap || !mapLoaded) {
-    return null;
-  }
-
-  // This component will only be rendered when useMap is available
-  return <MapControllerImpl useMap={useMap} location={location} />;
-};
-
-// Separate component that actually calls the hooks
-const MapControllerImpl = ({ useMap, location }) => {
-  // Now we can safely call the hook since we know it's available
   const map = useMap();
   
   useEffect(() => {
@@ -86,68 +38,266 @@ const MapControllerImpl = ({ useMap, location }) => {
   return null;
 };
 
-// Map component that only renders on the client side
+// Custom hook to manage Leaflet map lifecycle
+const useLeafletMap = (mapRef, mapCenter, location, setLocation, setMapCenter) => {
+  const mapInstance = useRef(null);
+  const isMounted = useRef(false);
+  
+  useEffect(() => {
+    isMounted.current = true;
+    
+    // Clean up function
+    return () => {
+      isMounted.current = false;
+      if (mapInstance.current) {
+        try {
+          mapInstance.current.remove();
+          mapInstance.current = null;
+        } catch (e) {
+          console.warn('Error removing map:', e);
+        }
+      }
+    };
+  }, []);
+  
+  // Initialize or update map
+  useEffect(() => {
+    if (!mapRef.current || !isMounted.current) return;
+    
+    // If map already exists, update its view
+    if (mapInstance.current) {
+      mapInstance.current.setView(mapCenter, 13);
+      return;
+    }
+    
+    // Clean up any existing map on the DOM element
+    if (mapRef.current._leaflet_id) {
+      try {
+        delete mapRef.current._leaflet_id;
+      } catch (e) {
+        console.warn('Error cleaning up map ref:', e);
+      }
+    }
+    
+    // Fix for default marker icons in Leaflet
+    delete L.Icon.Default.prototype._getIconUrl;
+    L.Icon.Default.mergeOptions({
+      iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+      iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+    });
+    
+    // Create new map instance
+    const map = L.map(mapRef.current).setView(mapCenter, 13);
+    mapInstance.current = map;
+    
+    // Add tile layer
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    
+    // Handle click events
+    map.on('click', (e) => {
+      if (isMounted.current) {
+        setLocation({
+          latitude: e.latlng.lat,
+          longitude: e.latlng.lng,
+        });
+        setMapCenter([e.latlng.lat, e.latlng.lng]);
+      }
+    });
+    
+  }, [mapCenter, setLocation, setMapCenter]);
+  
+  // Update marker when location changes
+  useEffect(() => {
+    if (!mapInstance.current || !isMounted.current) return;
+    
+    const map = mapInstance.current;
+    
+    // Clear existing markers
+    map.eachLayer((layer) => {
+      if (layer instanceof L.Marker) {
+        map.removeLayer(layer);
+      }
+    });
+    
+    // Add new marker if location is set
+    if (location.latitude && location.longitude) {
+      L.marker([location.latitude, location.longitude]).addTo(map);
+      map.setView([location.latitude, location.longitude], 15);
+    }
+  }, [location]);
+};
+
+// Map component using delayed dynamic import to avoid timing issues
 const MapComponent = ({ 
   mapCenter, 
   location, 
   setLocation, 
   setMapCenter 
 }) => {
-  const [mapComponentsLoaded, setMapComponentsLoaded] = useState(false);
-  const [MapContainer, setMapContainer] = useState(null);
-  const [TileLayer, setTileLayer] = useState(null);
-  const [Marker, setMarker] = useState(null);
-  const [L, setL] = useState(null);
+  const [mapInitialized, setMapInitialized] = useState(false);
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markerRef = useRef(null);
   
+  // Initialize map with delay to avoid timing issues
   useEffect(() => {
-    // Import leaflet and react-leaflet components only on the client side
-    Promise.all([
-      import('leaflet'),
-      import('react-leaflet')
-    ]).then(([leaflet, reactLeaflet]) => {
-      setL(() => leaflet.default);
-      setMapContainer(() => reactLeaflet.MapContainer);
-      setTileLayer(() => reactLeaflet.TileLayer);
-      setMarker(() => reactLeaflet.Marker);
-      setMapComponentsLoaded(true);
+    let timeoutId;
+    
+    const initMap = () => {
+      if (typeof window === 'undefined' || !mapRef.current || mapInitialized) {
+        return;
+      }
       
-      // Fix for default marker icons in Leaflet
-      delete leaflet.default.Icon.Default.prototype._getIconUrl;
-      leaflet.default.Icon.Default.mergeOptions({
-        iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-        iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+      try {
+        // Import Leaflet dynamically
+        import('leaflet').then((L) => {
+          // Use a small delay to ensure any previous map instances are cleaned up
+          setTimeout(() => {
+            try {
+              // Clean up any existing map instance
+              if (mapInstanceRef.current) {
+                mapInstanceRef.current.remove();
+                mapInstanceRef.current = null;
+              }
+              
+              // Clean up DOM node if it has a previous map instance
+              if (mapRef.current && mapRef.current._leaflet_id) {
+                delete mapRef.current._leaflet_id;
+              }
+              
+              // Fix for default marker icons in Leaflet
+              delete L.default.Icon.Default.prototype._getIconUrl;
+              L.default.Icon.Default.mergeOptions({
+                iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+                iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+              });
+              
+              // Create map instance
+              const map = L.default.map(mapRef.current, {
+                center: mapCenter,
+                zoom: 13
+              });
+              mapInstanceRef.current = map;
+              
+              // Add tile layer
+              L.default.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              }).addTo(map);
+              
+              // Handle click events
+              map.on('click', (e) => {
+                setLocation({
+                  latitude: e.latlng.lat,
+                  longitude: e.latlng.lng,
+                });
+                setMapCenter([e.latlng.lat, e.latlng.lng]);
+              });
+              
+              // Mark as initialized
+              setMapInitialized(true);
+            } catch (error) {
+              console.error('Error initializing map:', error);
+            }
+          }, 100); // Small delay to avoid timing issues
+        }).catch((error) => {
+          console.error('Error importing Leaflet:', error);
+        });
+      } catch (error) {
+        console.error('Error in map initialization:', error);
+      }
+    };
+    
+    // Use a longer delay for the first initialization
+    timeoutId = setTimeout(initMap, 500);
+    
+    // Cleanup function
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      
+      // Clean up marker
+      if (markerRef.current && mapInstanceRef.current) {
+        try {
+          mapInstanceRef.current.removeLayer(markerRef.current);
+        } catch (e) {
+          console.warn('Error removing marker:', e);
+        }
+        markerRef.current = null;
+      }
+      
+      // Clean up map
+      if (mapInstanceRef.current) {
+        try {
+          mapInstanceRef.current.remove();
+        } catch (e) {
+          console.warn('Error removing map:', e);
+        }
+        mapInstanceRef.current = null;
+      }
+      
+      setMapInitialized(false);
+    };
+  }, []); // Empty dependency array to run only once
+  
+  // Update map view when center changes
+  useEffect(() => {
+    if (mapInstanceRef.current && mapCenter) {
+      try {
+        mapInstanceRef.current.setView(mapCenter, 13);
+      } catch (error) {
+        console.error('Error setting map view:', error);
+      }
+    }
+  }, [mapCenter]);
+  
+  // Update marker when location changes
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    
+    const map = mapInstanceRef.current;
+    
+    // Remove existing marker
+    if (markerRef.current) {
+      try {
+        map.removeLayer(markerRef.current);
+      } catch (e) {
+        console.warn('Error removing marker:', e);
+      }
+      markerRef.current = null;
+    }
+    
+    // Add new marker if location is set
+    if (location.latitude && location.longitude) {
+      import('leaflet').then((L) => {
+        try {
+          markerRef.current = L.default.marker([location.latitude, location.longitude]).addTo(map);
+          map.setView([location.latitude, location.longitude], 15);
+        } catch (error) {
+          console.error('Error adding marker:', error);
+        }
+      }).catch((error) => {
+        console.error('Error importing Leaflet for marker:', error);
       });
-    }).catch((error) => {
-      console.error('Failed to load map components:', error);
-      setMapComponentsLoaded(true);
-    });
-  }, []);
-
-  if (!mapComponentsLoaded || !MapContainer || !TileLayer || !Marker || !L) {
-    return <div>Loading map...</div>;
-  }
+    }
+  }, [location]);
   
   return (
-    <MapContainer 
-      center={mapCenter} 
-      zoom={13} 
-      style={{ height: '400px', width: '100%' }}
+    <div 
+      ref={mapRef} 
+      style={{ height: '400px', width: '100%' }} 
       className="rounded-lg border border-gray-300"
     >
-      <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-      />
-      <MapClickHandler 
-        setLocation={setLocation}
-        setMapCenter={setMapCenter}
-      />
-      <MapController location={location} />
-      {location.latitude && location.longitude && (
-        <Marker position={[location.latitude, location.longitude]} />
+      {!mapInitialized && (
+        <div className="flex items-center justify-center h-full">
+          <div>Loading map...</div>
+        </div>
       )}
-    </MapContainer>
+    </div>
   );
 };
 
@@ -738,7 +888,7 @@ export default function ReportPage() {
                       }`}
                     >
                       <svg className="mr-2 -ml-0.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4zm6 9a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                        <path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4zm7 10a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
                       </svg>
                       Start Camera
                     </button>
@@ -753,7 +903,7 @@ export default function ReportPage() {
                       }`}
                     >
                       <svg className="mr-2 -ml-0.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4zm7 10a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                        <path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4zm7 10a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
                       </svg>
                       Capture
                     </button>
