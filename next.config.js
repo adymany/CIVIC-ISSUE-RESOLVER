@@ -4,7 +4,7 @@
 const nextConfig = {
   // Enable Turbopack for faster builds
   experimental: {
-    turbo: true
+    turbopack: true
   }
 };
 
