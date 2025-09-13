@@ -1,11 +1,16 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
-import L from 'leaflet';
+import dynamic from 'next/dynamic';
 
-// Component to handle map events
+// Dynamically import the map component to avoid SSR issues
+const MapWithNoSSR = dynamic(
+  () => import('../../components/MapComponent'),
+  { ssr: false, loading: () => <div>Loading map...</div> }
+);
+
+// MapClickHandler component
 const MapClickHandler = ({ 
   setLocation,
   setMapCenter
@@ -21,282 +26,31 @@ const MapClickHandler = ({
     },
   }), [setLocation, setMapCenter]);
 
-  useMapEvents(eventHandlers);
+  // We'll handle events in the MapComponent instead
   return null;
 };
 
-// Component to control map view
+// MapController component
 const MapController = ({ location }) => {
-  const map = useMap();
-  
-  useEffect(() => {
-    if (map && location.latitude && location.longitude) {
-      map.setView([location.latitude, location.longitude], 15);
-    }
-  }, [map, location]);
-
+  // We'll handle view updates in the MapComponent instead
   return null;
 };
 
-// Custom hook to manage Leaflet map lifecycle
-const useLeafletMap = (mapRef, mapCenter, location, setLocation, setMapCenter) => {
-  const mapInstance = useRef(null);
-  const isMounted = useRef(false);
-  
-  useEffect(() => {
-    isMounted.current = true;
-    
-    // Clean up function
-    return () => {
-      isMounted.current = false;
-      if (mapInstance.current) {
-        try {
-          mapInstance.current.remove();
-          mapInstance.current = null;
-        } catch (e) {
-          console.warn('Error removing map:', e);
-        }
-      }
-    };
-  }, []);
-  
-  // Initialize or update map
-  useEffect(() => {
-    if (!mapRef.current || !isMounted.current) return;
-    
-    // If map already exists, update its view
-    if (mapInstance.current) {
-      mapInstance.current.setView(mapCenter, 13);
-      return;
-    }
-    
-    // Clean up any existing map on the DOM element
-    if (mapRef.current._leaflet_id) {
-      try {
-        delete mapRef.current._leaflet_id;
-      } catch (e) {
-        console.warn('Error cleaning up map ref:', e);
-      }
-    }
-    
-    // Fix for default marker icons in Leaflet
-    delete L.Icon.Default.prototype._getIconUrl;
-    L.Icon.Default.mergeOptions({
-      iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-      iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-    });
-    
-    // Create new map instance
-    const map = L.map(mapRef.current).setView(mapCenter, 13);
-    mapInstance.current = map;
-    
-    // Add tile layer
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
-    
-    // Handle click events
-    map.on('click', (e) => {
-      if (isMounted.current) {
-        setLocation({
-          latitude: e.latlng.lat,
-          longitude: e.latlng.lng,
-        });
-        setMapCenter([e.latlng.lat, e.latlng.lng]);
-      }
-    });
-    
-  }, [mapCenter, setLocation, setMapCenter]);
-  
-  // Update marker when location changes
-  useEffect(() => {
-    if (!mapInstance.current || !isMounted.current) return;
-    
-    const map = mapInstance.current;
-    
-    // Clear existing markers
-    map.eachLayer((layer) => {
-      if (layer instanceof L.Marker) {
-        map.removeLayer(layer);
-      }
-    });
-    
-    // Add new marker if location is set
-    if (location.latitude && location.longitude) {
-      L.marker([location.latitude, location.longitude]).addTo(map);
-      map.setView([location.latitude, location.longitude], 15);
-    }
-  }, [location]);
-};
-
-// Map component using delayed dynamic import to avoid timing issues
+// Update the MapComponent usage
 const MapComponent = ({ 
   mapCenter, 
   location, 
   setLocation, 
   setMapCenter 
 }) => {
-  const [mapInitialized, setMapInitialized] = useState(false);
-  const mapRef = useRef(null);
-  const mapInstanceRef = useRef(null);
-  const markerRef = useRef(null);
-  
-  // Initialize map with delay to avoid timing issues
-  useEffect(() => {
-    let timeoutId;
-    
-    const initMap = () => {
-      if (typeof window === 'undefined' || !mapRef.current || mapInitialized) {
-        return;
-      }
-      
-      try {
-        // Import Leaflet dynamically
-        import('leaflet').then((L) => {
-          // Use a small delay to ensure any previous map instances are cleaned up
-          setTimeout(() => {
-            try {
-              // Clean up any existing map instance
-              if (mapInstanceRef.current) {
-                mapInstanceRef.current.remove();
-                mapInstanceRef.current = null;
-              }
-              
-              // Clean up DOM node if it has a previous map instance
-              if (mapRef.current && mapRef.current._leaflet_id) {
-                delete mapRef.current._leaflet_id;
-              }
-              
-              // Fix for default marker icons in Leaflet
-              delete L.default.Icon.Default.prototype._getIconUrl;
-              L.default.Icon.Default.mergeOptions({
-                iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-                iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-              });
-              
-              // Create map instance
-              const map = L.default.map(mapRef.current, {
-                center: mapCenter,
-                zoom: 13
-              });
-              mapInstanceRef.current = map;
-              
-              // Add tile layer
-              L.default.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-              }).addTo(map);
-              
-              // Handle click events
-              map.on('click', (e) => {
-                setLocation({
-                  latitude: e.latlng.lat,
-                  longitude: e.latlng.lng,
-                });
-                setMapCenter([e.latlng.lat, e.latlng.lng]);
-              });
-              
-              // Mark as initialized
-              setMapInitialized(true);
-            } catch (error) {
-              console.error('Error initializing map:', error);
-            }
-          }, 100); // Small delay to avoid timing issues
-        }).catch((error) => {
-          console.error('Error importing Leaflet:', error);
-        });
-      } catch (error) {
-        console.error('Error in map initialization:', error);
-      }
-    };
-    
-    // Use a longer delay for the first initialization
-    timeoutId = setTimeout(initMap, 500);
-    
-    // Cleanup function
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      
-      // Clean up marker
-      if (markerRef.current && mapInstanceRef.current) {
-        try {
-          mapInstanceRef.current.removeLayer(markerRef.current);
-        } catch (e) {
-          console.warn('Error removing marker:', e);
-        }
-        markerRef.current = null;
-      }
-      
-      // Clean up map
-      if (mapInstanceRef.current) {
-        try {
-          mapInstanceRef.current.remove();
-        } catch (e) {
-          console.warn('Error removing map:', e);
-        }
-        mapInstanceRef.current = null;
-      }
-      
-      setMapInitialized(false);
-    };
-  }, []); // Empty dependency array to run only once
-  
-  // Update map view when center changes
-  useEffect(() => {
-    if (mapInstanceRef.current && mapCenter) {
-      try {
-        mapInstanceRef.current.setView(mapCenter, 13);
-      } catch (error) {
-        console.error('Error setting map view:', error);
-      }
-    }
-  }, [mapCenter]);
-  
-  // Update marker when location changes
-  useEffect(() => {
-    if (!mapInstanceRef.current) return;
-    
-    const map = mapInstanceRef.current;
-    
-    // Remove existing marker
-    if (markerRef.current) {
-      try {
-        map.removeLayer(markerRef.current);
-      } catch (e) {
-        console.warn('Error removing marker:', e);
-      }
-      markerRef.current = null;
-    }
-    
-    // Add new marker if location is set
-    if (location.latitude && location.longitude) {
-      import('leaflet').then((L) => {
-        try {
-          markerRef.current = L.default.marker([location.latitude, location.longitude]).addTo(map);
-          map.setView([location.latitude, location.longitude], 15);
-        } catch (error) {
-          console.error('Error adding marker:', error);
-        }
-      }).catch((error) => {
-        console.error('Error importing Leaflet for marker:', error);
-      });
-    }
-  }, [location]);
-  
   return (
-    <div 
-      ref={mapRef} 
-      style={{ height: '400px', width: '100%' }} 
-      className="rounded-lg border border-gray-300"
-    >
-      {!mapInitialized && (
-        <div className="flex items-center justify-center h-full">
-          <div>Loading map...</div>
-        </div>
-      )}
+    <div style={{ height: '400px', width: '100%' }} className="rounded-lg border border-gray-300">
+      <MapWithNoSSR 
+        mapCenter={mapCenter}
+        location={location}
+        setLocation={setLocation}
+        setMapCenter={setMapCenter}
+      />
     </div>
   );
 };
@@ -732,23 +486,23 @@ export default function ReportPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6">Report a Civic Issue</h1>
+      <h1 className="text-3xl font-bold mb-6 text-gray-900 dark:text-white">Report a Civic Issue</h1>
       
       {submitSuccess && (
-        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
+        <div className="bg-green-100 dark:bg-green-900 border border-green-400 dark:border-green-700 text-green-800 dark:text-green-200 px-4 py-3 rounded mb-6">
           <p>Report submitted successfully!</p>
         </div>
       )}
       
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-700 text-red-800 dark:text-red-200 px-4 py-3 rounded mb-6">
           {error}
         </div>
       )}
       
       <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
         <div className="mb-6">
-          <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="title" className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
             Issue Title *
           </label>
           <input
@@ -756,13 +510,13 @@ export default function ReportPage() {
             id="title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-gray-400 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white bg-white dark:bg-gray-800"
             placeholder="Briefly describe the issue"
           />
         </div>
         
         <div className="mb-6">
-          <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="description" className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
             Description *
           </label>
           <textarea
@@ -770,29 +524,29 @@ export default function ReportPage() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={4}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-gray-400 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white bg-white dark:bg-gray-800"
             placeholder="Provide detailed information about the issue"
           />
         </div>
         
         <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
             Location *
           </label>
           <div className="mb-2">
             {location.latitude && location.longitude ? (
-              <p className="text-sm text-green-600">
+              <p className="text-sm text-green-700 dark:text-green-400 font-medium">
                 Selected location: {parseFloat(location.latitude).toFixed(6)}, {parseFloat(location.longitude).toFixed(6)}
               </p>
             ) : (
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-700 dark:text-gray-300">
                 Click on the map to select the location of the issue
               </p>
             )}
           </div>
           
           {!isHttps && (
-            <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
+            <div className="bg-yellow-100 dark:bg-yellow-900 border border-yellow-400 dark:border-yellow-700 text-yellow-800 dark:text-yellow-200 px-4 py-3 rounded mb-4">
               <p className="font-bold">Secure Connection Required</p>
               <p>Location detection requires a secure connection (HTTPS). Please access this application through HTTPS or localhost for all features to work properly.</p>
             </div>
@@ -805,8 +559,8 @@ export default function ReportPage() {
               disabled={!isHttps}
               className={`inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
                 isHttps 
-                  ? 'text-white bg-blue-600 hover:bg-blue-700' 
-                  : 'text-gray-500 bg-gray-200 cursor-not-allowed'
+                  ? 'text-white bg-blue-700 hover:bg-blue-800' 
+                  : 'text-gray-600 dark:text-gray-300 bg-gray-300 dark:bg-gray-600 cursor-not-allowed'
               }`}
             >
               <svg className="mr-2 -ml-0.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -817,7 +571,7 @@ export default function ReportPage() {
           </div>
           
           {locationError && (
-            <div className="text-sm text-red-600 mb-2">
+            <div className="text-sm text-red-700 dark:text-red-400 mb-2">
               {locationError}
             </div>
           )}
@@ -832,18 +586,18 @@ export default function ReportPage() {
         </div>
         
         <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
             Photo
           </label>
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1">
               {image ? (
                 <div className="mb-2">
-                  <img src={image} alt="Captured issue" className="w-full h-48 object-cover rounded-md border border-gray-300" />
+                  <img src={image} alt="Captured issue" className="w-full h-48 object-cover rounded-md border border-gray-400 dark:border-gray-600" />
                   <button
                     type="button"
                     onClick={() => setImage(null)}
-                    className="mt-2 text-sm text-red-600 hover:text-red-800"
+                    className="mt-2 text-sm text-red-700 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300"
                   >
                     Remove Photo
                   </button>
@@ -857,16 +611,16 @@ export default function ReportPage() {
                         autoPlay 
                         playsInline 
                         muted
-                        className="w-full h-48 object-cover rounded-md border border-gray-300 bg-gray-100"
+                        className="w-full h-48 object-cover rounded-md border border-gray-400 dark:border-gray-600 bg-gray-200 dark:bg-gray-700"
                       />
                       <canvas ref={canvasRef} className="hidden" />
                     </div>
                   ) : (
-                    <div className="mb-2 p-8 text-center bg-gray-100 rounded-md border border-gray-300">
-                      <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                    <div className="mb-2 p-8 text-center bg-gray-200 dark:bg-gray-700 rounded-md border border-gray-400 dark:border-gray-600">
+                      <svg className="mx-auto h-12 w-12 text-gray-600 dark:text-gray-300" stroke="currentColor" fill="none" viewBox="0 0 48 48">
                         <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
-                      <p className="mt-2 text-sm text-gray-600">
+                      <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
                         {cameraError || 'Camera not supported or access denied'}
                       </p>
                     </div>
@@ -883,8 +637,8 @@ export default function ReportPage() {
                       disabled={!isHttps}
                       className={`inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                         isHttps 
-                          ? 'text-white bg-blue-600 hover:bg-blue-700 focus:ring-blue-500' 
-                          : 'text-gray-500 bg-gray-200 cursor-not-allowed'
+                          ? 'text-white bg-blue-700 hover:bg-blue-800 focus:ring-blue-500' 
+                          : 'text-gray-600 dark:text-gray-300 bg-gray-300 dark:bg-gray-600 cursor-not-allowed'
                       }`}
                     >
                       <svg className="mr-2 -ml-0.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -898,12 +652,12 @@ export default function ReportPage() {
                       disabled={!isHttps}
                       className={`inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                         isHttps 
-                          ? 'text-white bg-green-600 hover:bg-green-700 focus:ring-green-500' 
-                          : 'text-gray-500 bg-gray-200 cursor-not-allowed'
+                          ? 'text-white bg-green-700 hover:bg-green-800 focus:ring-green-500' 
+                          : 'text-gray-600 dark:text-gray-300 bg-gray-300 dark:bg-gray-600 cursor-not-allowed'
                       }`}
                     >
                       <svg className="mr-2 -ml-0.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4zm7 10a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                        <path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4zm7 10a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
                       </svg>
                       Capture
                     </button>
@@ -911,7 +665,7 @@ export default function ReportPage() {
                 )}
                 
                 {!image && (
-                  <label className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 cursor-pointer">
+                  <label className="inline-flex items-center px-3 py-2 border border-gray-400 dark:border-gray-600 text-sm leading-4 font-medium rounded-md text-gray-800 dark:text-white bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 cursor-pointer">
                     <svg className="mr-2 -ml-0.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
                     </svg>
@@ -927,13 +681,13 @@ export default function ReportPage() {
               </div>
               
               {!isHttps && isCameraSupported && (
-                <div className="text-sm text-yellow-600 mt-2">
+                <div className="text-sm text-yellow-700 dark:text-yellow-400 mt-2">
                   Camera access requires a secure connection (HTTPS). Please access this application through HTTPS or localhost.
                 </div>
               )}
               
               {cameraError && (
-                <div className="text-sm text-red-600 mt-2">
+                <div className="text-sm text-red-700 dark:text-red-400 mt-2">
                   {cameraError}
                 </div>
               )}
@@ -945,7 +699,7 @@ export default function ReportPage() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-700 hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
           >
             {isSubmitting ? (
               <>

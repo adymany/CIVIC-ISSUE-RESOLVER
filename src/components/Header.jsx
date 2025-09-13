@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import ThemeToggle from './ThemeToggle';
 
 export default function Header() {
   const pathname = usePathname();
@@ -12,26 +13,29 @@ export default function Header() {
         <Link href="/" className="text-xl font-bold">
           Civic Issue Reporter
         </Link>
-        <nav>
-          <ul className="flex space-x-4">
-            <li>
-              <Link 
-                href="/" 
-                className={`hover:text-blue-200 ${pathname === '/' ? 'font-bold' : ''}`}
-              >
-                Report Issue
-              </Link>
-            </li>
-            <li>
-              <Link 
-                href="/dashboard" 
-                className={`hover:text-blue-200 ${pathname === '/dashboard' ? 'font-bold' : ''}`}
-              >
-                Dashboard
-              </Link>
-            </li>
-          </ul>
-        </nav>
+        <div className="flex items-center space-x-4">
+          <nav>
+            <ul className="flex space-x-4">
+              <li>
+                <Link 
+                  href="/" 
+                  className={`hover:text-blue-200 ${pathname === '/' ? 'font-bold' : ''}`}
+                >
+                  Report Issue
+                </Link>
+              </li>
+              <li>
+                <Link 
+                  href="/dashboard" 
+                  className={`hover:text-blue-200 ${pathname === '/dashboard' ? 'font-bold' : ''}`}
+                >
+                  Dashboard
+                </Link>
+              </li>
+            </ul>
+          </nav>
+          <ThemeToggle />
+        </div>
       </div>
     </header>
   );
