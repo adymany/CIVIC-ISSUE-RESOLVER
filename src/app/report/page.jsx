@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import 'leaflet/dist/leaflet.css';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
+import { isAuthenticated, getCurrentUserId, redirectToLogin } from '@/lib/auth';
 
 // Dynamically import the map component to avoid SSR issues
 const MapWithNoSSR = dynamic(
@@ -56,6 +58,22 @@ const MapComponent = ({
 };
 
 export default function ReportPage() {
+  const router = useRouter();
+  
+  // Check if user is authenticated
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (!isAuthenticated()) {
+        redirectToLogin(router);
+        return;
+      }
+    }
+  }, [router]);
+  
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('new'); // 'new' or 'history'
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [image, setImage] = useState(null);
@@ -85,8 +103,14 @@ export default function ReportPage() {
       return mobileRegex.test(navigator.userAgent);
     };
     
+    // Check if we're on a secure context (including localhost)
+    const isSecureContext = window.location.protocol === 'https:' || 
+                           window.location.hostname === 'localhost' || 
+                           window.location.hostname === '127.0.0.1' ||
+                           window.location.hostname === '[::1]';
+    
     setIsMobile(checkIsMobile());
-    setIsHttps(window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    setIsHttps(isSecureContext);
   }, []);
 
   // Check if camera is supported
@@ -111,10 +135,51 @@ export default function ReportPage() {
     
     return () => clearTimeout(timer);
   }, []);
+  
+  // Fetch user's reports
+  useEffect(() => {
+    const fetchUserReports = async () => {
+      try {
+        // Check if user is authenticated
+        if (!isAuthenticated()) {
+          return;
+        }
+        
+        setLoading(true);
+        const userId = getCurrentUserId();
+        
+        const response = await fetch('/api/user/reports', {
+          headers: {
+            'x-user-id': userId
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch reports');
+        }
+        
+        const data = await response.json();
+        setReports(data);
+      } catch (err) {
+        console.error('Error fetching reports:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (activeTab === 'history') {
+      fetchUserReports();
+    }
+  }, [activeTab]);
 
   const getLocation = () => {
-    // Check if we're on a secure context
-    if (!isHttps) {
+    // Check if we're on a secure context (but allow localhost)
+    const isSecureContext = window.location.protocol === 'https:' || 
+                           window.location.hostname === 'localhost' || 
+                           window.location.hostname === '127.0.0.1' ||
+                           window.location.hostname === '[::1]';
+    
+    if (!isSecureContext && window.location.protocol !== 'https:') {
       const errorMessage = 'Location access requires a secure connection (HTTPS). Please access this application through HTTPS or localhost for location detection to work.';
       setLocationError(errorMessage);
       setError(errorMessage);
@@ -229,8 +294,13 @@ export default function ReportPage() {
   // Access camera with multiple fallback options
   const startCamera = async () => {
     try {
-      // Check if we're on a secure context
-      if (!isHttps) {
+      // Check if we're on a secure context (but allow localhost)
+      const isSecureContext = window.location.protocol === 'https:' || 
+                             window.location.hostname === 'localhost' || 
+                             window.location.hostname === '127.0.0.1' ||
+                             window.location.hostname === '[::1]';
+      
+      if (!isSecureContext && window.location.protocol !== 'https:') {
         const errorMessage = 'Camera access requires a secure connection (HTTPS). Please access this application through HTTPS or localhost for camera functionality to work.';
         setCameraError(errorMessage);
         setError(errorMessage);
@@ -484,237 +554,332 @@ export default function ReportPage() {
     }
   };
 
+  // Function to check if image URL is valid
+  const isValidImageUrl = (url) => {
+    if (!url) return false;
+    // Check if it's a data URL (base64)
+    if (url.startsWith('data:image/')) {
+      // Check if it's not corrupted (not too long)
+      return url.length < 100000; // Limit to 100KB
+    }
+    // For regular URLs, we'll assume they're valid
+    return true;
+  };
+  
+  // Render user's report history
+  const renderReportHistory = () => {
+    if (loading) {
+      return (
+        <div className="text-center py-12">
+          <p className="text-gray-700 dark:text-gray-300">Loading your reports...</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {reports.map((report) => (
+          <div key={report.id} className="card card-hover">
+            {isValidImageUrl(report.imageUrl) ? (
+              <img 
+                src={report.imageUrl} 
+                alt={report.title} 
+                className="w-full h-48 object-cover"
+                onError={(e) => {
+                  // If image fails to load, replace with placeholder
+                  e.target.src = 'https://placehold.co/600x400?text=No+Image+Available';
+                }}
+              />
+            ) : (
+              <div className="w-full h-48 bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+                <span className="text-gray-500 dark:text-gray-400">No Image Available</span>
+              </div>
+            )}
+            <div className="p-4">
+              <div className="flex justify-between items-start mb-2">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{report.title}</h3>
+                <span className={`status-badge ${
+                  report.status === 'PENDING' ? 'status-pending' :
+                  report.status === 'IN_PROGRESS' ? 'status-in-progress' :
+                  report.status === 'RESOLVED' ? 'status-resolved' :
+                  report.status === 'REJECTED' ? 'status-rejected' :
+                  'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
+                }`}>
+                  {report.status.replace('_', ' ')}
+                </span>
+              </div>
+              <p className="text-gray-600 dark:text-gray-300 text-sm mb-3">{report.description}</p>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                Location: {report.latitude.toFixed(4)}, {report.longitude.toFixed(4)}
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">
+                Reported: {new Date(report.createdAt).toLocaleDateString()}
+              </div>
+            </div>
+          </div>
+        ))}
+        
+        {reports.length === 0 && (
+          <div className="col-span-full text-center py-12">
+            <p className="text-gray-500 dark:text-gray-400">You haven't submitted any reports yet.</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+  
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-6 text-gray-900 dark:text-white">Report a Civic Issue</h1>
       
-      {submitSuccess && (
-        <div className="bg-green-100 dark:bg-green-900 border border-green-400 dark:border-green-700 text-green-800 dark:text-green-200 px-4 py-3 rounded mb-6">
-          <p>Report submitted successfully!</p>
-        </div>
-      )}
+      {/* Tab navigation */}
+      <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
+        <nav className="flex space-x-8">
+          <button
+            onClick={() => setActiveTab('new')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'new'
+                ? 'border-primary-500 text-primary-600 dark:text-primary-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+            }`}
+          >
+            New Report
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'history'
+                ? 'border-primary-500 text-primary-600 dark:text-primary-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+            }`}
+          >
+            My Reports
+          </button>
+        </nav>
+      </div>
       
-      {error && (
-        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-700 text-red-800 dark:text-red-200 px-4 py-3 rounded mb-6">
-          {error}
-        </div>
-      )}
-      
-      <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
-        <div className="mb-6">
-          <label htmlFor="title" className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
-            Issue Title *
-          </label>
-          <input
-            type="text"
-            id="title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-400 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white bg-white dark:bg-gray-800"
-            placeholder="Briefly describe the issue"
-          />
-        </div>
-        
-        <div className="mb-6">
-          <label htmlFor="description" className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
-            Description *
-          </label>
-          <textarea
-            id="description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={4}
-            className="w-full px-3 py-2 border border-gray-400 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white bg-white dark:bg-gray-800"
-            placeholder="Provide detailed information about the issue"
-          />
-        </div>
-        
-        <div className="mb-6">
-          <label className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
-            Location *
-          </label>
-          <div className="mb-2">
-            {location.latitude && location.longitude ? (
-              <p className="text-sm text-green-700 dark:text-green-400 font-medium">
-                Selected location: {parseFloat(location.latitude).toFixed(6)}, {parseFloat(location.longitude).toFixed(6)}
-              </p>
-            ) : (
-              <p className="text-sm text-gray-700 dark:text-gray-300">
-                Click on the map to select the location of the issue
-              </p>
-            )}
-          </div>
-          
-          {!isHttps && (
-            <div className="bg-yellow-100 dark:bg-yellow-900 border border-yellow-400 dark:border-yellow-700 text-yellow-800 dark:text-yellow-200 px-4 py-3 rounded mb-4">
-              <p className="font-bold">Secure Connection Required</p>
-              <p>Location detection requires a secure connection (HTTPS). Please access this application through HTTPS or localhost for all features to work properly.</p>
+      {activeTab === 'new' ? (
+        // Render the new report form
+        <>
+          {submitSuccess && (
+            <div className="bg-green-100 dark:bg-green-900 border border-green-400 dark:border-green-700 text-green-800 dark:text-green-200 px-4 py-3 rounded mb-6">
+              <p>Report submitted successfully!</p>
             </div>
           )}
           
-          <div className="mb-2">
-            <button
-              type="button"
-              onClick={getLocation}
-              disabled={!isHttps}
-              className={`inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
-                isHttps 
-                  ? 'text-white bg-blue-700 hover:bg-blue-800' 
-                  : 'text-gray-600 dark:text-gray-300 bg-gray-300 dark:bg-gray-600 cursor-not-allowed'
-              }`}
-            >
-              <svg className="mr-2 -ml-0.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-              </svg>
-              Detect My Location
-            </button>
-          </div>
-          
-          {locationError && (
-            <div className="text-sm text-red-700 dark:text-red-400 mb-2">
-              {locationError}
+          {error && (
+            <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-700 text-red-800 dark:text-red-200 px-4 py-3 rounded mb-6">
+              {error}
             </div>
           )}
           
-          {/* Map component */}
-          <MapComponent 
-            mapCenter={mapCenter} 
-            location={location} 
-            setLocation={setLocation} 
-            setMapCenter={setMapCenter} 
-          />
-        </div>
-        
-        <div className="mb-6">
-          <label className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
-            Photo
-          </label>
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              {image ? (
-                <div className="mb-2">
-                  <img src={image} alt="Captured issue" className="w-full h-48 object-cover rounded-md border border-gray-400 dark:border-gray-600" />
-                  <button
-                    type="button"
-                    onClick={() => setImage(null)}
-                    className="mt-2 text-sm text-red-700 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300"
-                  >
-                    Remove Photo
-                  </button>
-                </div>
-              ) : (
-                <>
-                  {isCameraSupported ? (
-                    <div className="mb-2">
-                      <video 
-                        ref={videoRef} 
-                        autoPlay 
-                        playsInline 
-                        muted
-                        className="w-full h-48 object-cover rounded-md border border-gray-400 dark:border-gray-600 bg-gray-200 dark:bg-gray-700"
-                      />
-                      <canvas ref={canvasRef} className="hidden" />
-                    </div>
-                  ) : (
-                    <div className="mb-2 p-8 text-center bg-gray-200 dark:bg-gray-700 rounded-md border border-gray-400 dark:border-gray-600">
-                      <svg className="mx-auto h-12 w-12 text-gray-600 dark:text-gray-300" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                        <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
-                        {cameraError || 'Camera not supported or access denied'}
-                      </p>
-                    </div>
-                  )}
-                </>
-              )}
-              
-              <div className="flex flex-wrap gap-2">
-                {!image && isCameraSupported && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={startCamera}
-                      disabled={!isHttps}
-                      className={`inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                        isHttps 
-                          ? 'text-white bg-blue-700 hover:bg-blue-800 focus:ring-blue-500' 
-                          : 'text-gray-600 dark:text-gray-300 bg-gray-300 dark:bg-gray-600 cursor-not-allowed'
-                      }`}
-                    >
-                      <svg className="mr-2 -ml-0.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4zm7 10a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-                      </svg>
-                      Start Camera
-                    </button>
-                    <button
-                      type="button"
-                      onClick={captureImage}
-                      disabled={!isHttps}
-                      className={`inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                        isHttps 
-                          ? 'text-white bg-green-700 hover:bg-green-800 focus:ring-green-500' 
-                          : 'text-gray-600 dark:text-gray-300 bg-gray-300 dark:bg-gray-600 cursor-not-allowed'
-                      }`}
-                    >
-                      <svg className="mr-2 -ml-0.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4zm7 10a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-                      </svg>
-                      Capture
-                    </button>
-                  </>
-                )}
-                
-                {!image && (
-                  <label className="inline-flex items-center px-3 py-2 border border-gray-400 dark:border-gray-600 text-sm leading-4 font-medium rounded-md text-gray-800 dark:text-white bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 cursor-pointer">
-                    <svg className="mr-2 -ml-0.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
-                    </svg>
-                    Upload Photo
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageChange}
-                      className="hidden"
-                    />
-                  </label>
+          <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
+            <div className="mb-6">
+              <label htmlFor="title" className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
+                Issue Title *
+              </label>
+              <input
+                type="text"
+                id="title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-gray-900 dark:text-white bg-white dark:bg-gray-800"
+                placeholder="Briefly describe the issue"
+              />
+            </div>
+            
+            <div className="mb-6">
+              <label htmlFor="description" className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
+                Description *
+              </label>
+              <textarea
+                id="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={4}
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-gray-900 dark:text-white bg-white dark:bg-gray-800"
+                placeholder="Provide detailed information about the issue"
+              />
+            </div>
+            
+            <div className="mb-6">
+              <label className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
+                Location *
+              </label>
+              <div className="mb-2">
+                {location.latitude && location.longitude ? (
+                  <p className="text-sm text-green-700 dark:text-green-400 font-medium">
+                    Selected location: {parseFloat(location.latitude).toFixed(6)}, {parseFloat(location.longitude).toFixed(6)}
+                  </p>
+                ) : (
+                  <p className="text-sm text-gray-700 dark:text-gray-300">
+                    Click on the map to select the location of the issue
+                  </p>
                 )}
               </div>
               
-              {!isHttps && isCameraSupported && (
-                <div className="text-sm text-yellow-700 dark:text-yellow-400 mt-2">
-                  Camera access requires a secure connection (HTTPS). Please access this application through HTTPS or localhost.
+              <div className="mb-4">
+                <button
+                  type="button"
+                  onClick={getLocation}
+                  className={`btn-pill flex items-center ${
+                    isHttps 
+                      ? 'btn-primary-gradient' 
+                      : 'bg-gray-300 dark:bg-gray-600 text-gray-600 dark:text-gray-300'
+                  }`}
+                >
+                  <svg className="mr-2 -ml-0.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                  </svg>
+                  Detect My Location
+                </button>
+              </div>
+              
+              {locationError && (
+                <div className="text-sm text-red-700 dark:text-red-400 mb-4">
+                  {locationError}
                 </div>
               )}
               
-              {cameraError && (
-                <div className="text-sm text-red-700 dark:text-red-400 mt-2">
-                  {cameraError}
-                </div>
-              )}
+              {/* Map component */}
+              <MapComponent 
+                mapCenter={mapCenter} 
+                location={location} 
+                setLocation={setLocation} 
+                setMapCenter={setMapCenter} 
+              />
             </div>
-          </div>
+            
+            <div className="mb-8">
+              <label className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
+                Photo
+              </label>
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="flex-1">
+                  {image ? (
+                    <div className="mb-4">
+                      <img src={image} alt="Captured issue" className="w-full h-48 object-cover rounded-xl border border-gray-300 dark:border-gray-600" />
+                      <button
+                        type="button"
+                        onClick={() => setImage(null)}
+                        className="mt-2 text-sm text-red-700 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300"
+                      >
+                        Remove Photo
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {isCameraSupported ? (
+                        <div className="mb-4">
+                          <video 
+                            ref={videoRef} 
+                            autoPlay 
+                            playsInline 
+                            muted
+                            className="w-full h-48 object-cover rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-200 dark:bg-gray-700"
+                          />
+                          <canvas ref={canvasRef} className="hidden" />
+                        </div>
+                      ) : (
+                        <div className="mb-4 p-8 text-center bg-gray-200 dark:bg-gray-700 rounded-xl border border-gray-300 dark:border-gray-600">
+                          <svg className="mx-auto h-12 w-12 text-gray-600 dark:text-gray-300" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                            <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                          <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                            {cameraError || 'Camera not supported or access denied'}
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  
+                  <div className="flex flex-wrap gap-2">
+                    {!image && isCameraSupported && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={startCamera}
+                          className={`btn-pill flex items-center ${
+                            isHttps 
+                              ? 'btn-primary-gradient' 
+                              : 'bg-gray-300 dark:bg-gray-600 text-gray-600 dark:text-gray-300'
+                          }`}
+                        >
+                          <svg className="mr-2 -ml-0.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4zm7 10a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                          </svg>
+                          Start Camera
+                        </button>
+                        <button
+                          type="button"
+                          onClick={captureImage}
+                          className={`btn-pill flex items-center ${
+                            isHttps 
+                              ? 'bg-secondary-green text-white shadow-medium hover:shadow-large' 
+                              : 'bg-gray-300 dark:bg-gray-600 text-gray-600 dark:text-gray-300'
+                          }`}
+                        >
+                          <svg className="mr-2 -ml-0.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4zm7 10a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                          </svg>
+                          Capture
+                        </button>
+                      </>
+                    )}
+                    
+                    {!image && (
+                      <label className="btn-pill btn-secondary flex items-center cursor-pointer">
+                        <svg className="mr-2 -ml-0.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+                        </svg>
+                        Upload Photo
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageChange}
+                          className="hidden"
+                        />
+                      </label>
+                    )}
+                  </div>
+                  
+                  {cameraError && (
+                    <div className="text-sm text-red-700 dark:text-red-400 mt-2">
+                      {cameraError}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="btn-pill btn-primary-gradient flex items-center"
+              >
+                {isSubmitting ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Submitting...
+                  </>
+                ) : (
+                  'Submit Report'
+                )}
+              </button>
+            </div>
+          </form>
+        </>
+      ) : (
+        // Render user's report history
+        <div>
+          <h2 className="text-2xl font-bold mb-6 text-gray-900 dark:text-white">My Reports</h2>
+          {renderReportHistory()}
         </div>
-        
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-700 hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-          >
-            {isSubmitting ? (
-              <>
-                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Submitting...
-              </>
-            ) : (
-              'Submit Report'
-            )}
-          </button>
-        </div>
-      </form>
+      )}
     </div>
   );
 }

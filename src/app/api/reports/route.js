@@ -1,6 +1,5 @@
-const { NextResponse } = require('next/server');
-const prisma = require('@/lib/prisma').default;
-// const inMemoryDb = require('@/lib/in-memory-db').default; // Removed in-memory DB
+import { NextResponse } from 'next/server';
+import dbAdapter from '@/lib/db-adapter';
 
 // Helper function to validate and clean image data
 function cleanImageData(imageUrl) {
@@ -21,7 +20,7 @@ function cleanImageData(imageUrl) {
 }
 
 // POST /api/reports - Create a new report
-async function POST(request) {
+export async function POST(request) {
   try {
     const body = await request.json();
     
@@ -39,7 +38,6 @@ async function POST(request) {
     // Clean and validate image data
     const cleanedImageUrl = cleanImageData(imageUrl);
     
-    // Use Prisma (PostgreSQL) directly without fallback
     // Handle the case where no user is provided or user doesn't exist
     let reportData = {
       title,
@@ -52,43 +50,35 @@ async function POST(request) {
     // If no userId provided, create/get anonymous user
     if (!userId) {
       // Check if anonymous user exists
-      let anonymousUser = await prisma.user.findUnique({
-        where: { email: 'anonymous@civicreporter.com' },
-      });
+      let anonymousUser = await dbAdapter.findUserByEmail('anonymous@civicreporter.com');
       
       // If not, create one
       if (!anonymousUser) {
-        anonymousUser = await prisma.user.create({
-          data: {
-            email: 'anonymous@civicreporter.com',
-            password: '$2a$10$8K1p/a0dURXAm7QiTRqNa.E3YPWs8UkrpC497F5rG1EtI1L19g3O6', // bcrypt hash of "anonymous"
-            name: 'Anonymous User',
-          },
+        anonymousUser = await dbAdapter.createUser({
+          email: 'anonymous@civicreporter.com',
+          password: '$2a$10$8K1p/a0dURXAm7QiTRqNa.E3YPWs8UkrpC497F5rG1EtI1L19g3O6', // bcrypt hash of "anonymous"
+          name: 'Anonymous User',
+          mobile: '0000000000', // Add required mobile field
         });
       }
       
       reportData.userId = anonymousUser.id;
     } else {
       // If userId is provided, verify it exists
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-      });
+      const user = await dbAdapter.findUserByEmail(userId);
       
       if (user) {
         reportData.userId = userId;
       } else {
         // User doesn't exist, use anonymous user instead
-        let anonymousUser = await prisma.user.findUnique({
-          where: { email: 'anonymous@civicreporter.com' },
-        });
+        let anonymousUser = await dbAdapter.findUserByEmail('anonymous@civicreporter.com');
         
         if (!anonymousUser) {
-          anonymousUser = await prisma.user.create({
-            data: {
-              email: 'anonymous@civicreporter.com',
-              password: '$2a$10$8K1p/a0dURXAm7QiTRqNa.E3YPWs8UkrpC497F5rG1EtI1L19g3O6',
-              name: 'Anonymous User',
-            },
+          anonymousUser = await dbAdapter.createUser({
+            email: 'anonymous@civicreporter.com',
+            password: '$2a$10$8K1p/a0dURXAm7QiTRqNa.E3YPWs8UkrpC497F5rG1EtI1L19g3O6',
+            name: 'Anonymous User',
+            mobile: '0000000000', // Add required mobile field
           });
         }
         
@@ -96,9 +86,7 @@ async function POST(request) {
       }
     }
     
-    const report = await prisma.report.create({
-      data: reportData,
-    });
+    const report = await dbAdapter.createReport(reportData);
     
     // Clean the returned report data
     const cleanReport = {
@@ -117,14 +105,13 @@ async function POST(request) {
 }
 
 // GET /api/reports - Get all reports (with optional filtering)
-async function GET(request) {
+export async function GET(request) {
   try {
     // Extract query parameters
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
     const limit = searchParams.get('limit');
     
-    // Use Prisma (PostgreSQL) directly without fallback
     // Build query filters
     const where = {};
     if (status) {
@@ -132,22 +119,7 @@ async function GET(request) {
     }
     
     // Get reports from database
-    const reports = await prisma.report.findMany({
-      where,
-      orderBy: {
-        createdAt: 'desc',
-      },
-      take: limit ? parseInt(limit) : undefined,
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
-    });
+    const reports = await dbAdapter.findReports(where);
     
     // Clean up any corrupted image data
     const cleanReports = reports.map(report => {
@@ -166,8 +138,3 @@ async function GET(request) {
     );
   }
 }
-
-module.exports = {
-  POST,
-  GET
-};

@@ -1,4 +1,4 @@
-const { NextResponse } = require('next/server');
+import { NextResponse } from 'next/server';
 
 // GET /api/health - Health check endpoint
 export async function GET() {

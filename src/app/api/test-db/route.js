@@ -1,8 +1,8 @@
-const { NextResponse } = require('next/server');
-const prisma = require('@/lib/prisma').default;
-const inMemoryDb = require('@/lib/in-memory-db').default;
+import { NextResponse } from 'next/server';
+import prisma from '@/lib/prisma.js';
+import inMemoryDb from '@/lib/in-memory-db.js';
 
-async function GET() {
+export async function GET() {
   try {
     try {
       // Try to use Prisma (PostgreSQL)
@@ -48,7 +48,3 @@ async function GET() {
     }, { status: 500 });
   }
 }
-
-module.exports = {
-  GET
-};

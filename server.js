@@ -1,8 +1,8 @@
-const { createServer } = require('https');
-const { parse } = require('url');
-const next = require('next');
-const fs = require('fs');
-const path = require('path');
+import { createServer } from 'https';
+import { parse } from 'url';
+import next from 'next';
+import fs from 'fs';
+import path from 'path';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = '0.0.0.0'; // Listen on all network interfaces

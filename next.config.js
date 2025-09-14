@@ -3,9 +3,7 @@
  */
 const nextConfig = {
   // Enable Turbopack for faster builds
-  experimental: {
-    turbopack: true
-  }
+  // The turbopack experimental flag is no longer needed in Next.js 15.5.3
 };
 
-module.exports = nextConfig;
+export default nextConfig;

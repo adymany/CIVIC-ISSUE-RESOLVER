@@ -1,93 +1,55 @@
-const { NextResponse } = require('next/server');
-const prisma = require('@/lib/prisma').default;
-const bcrypt = require('bcryptjs');
-const inMemoryDb = require('@/lib/in-memory-db').default;
+import { NextResponse } from 'next/server';
+import bcrypt from 'bcryptjs';
+import dbAdapter from '@/lib/db-adapter';
 
 // POST /api/auth/login - Authenticate a user
-async function POST(request) {
+export async function POST(request) {
   try {
-    const body = await request.json();
-    const { email, password } = body;
-    
+    const { email, password, mobile } = await request.json();
+
     // Validate input
-    if (!email || !password) {
+    if ((!email || !password) && !mobile) {
       return NextResponse.json(
-        { error: 'Email and password are required' },
+        { error: 'Email and password or mobile number are required' },
         { status: 400 }
       );
     }
-    
-    try {
-      // Try to use Prisma (PostgreSQL)
-      const user = await prisma.user.findUnique({
-        where: {
-          email,
-        },
-      });
-      
-      if (!user) {
-        throw new Error('User not found');
-      }
-      
-      // Check password
+
+    let user;
+
+    // Find user by email or mobile
+    if (email) {
+      user = await dbAdapter.findUserByEmail(email);
+    } else if (mobile) {
+      user = await dbAdapter.findUserByMobile(mobile);
+    }
+
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Invalid credentials' },
+        { status: 401 }
+      );
+    }
+
+    // Verify password if email/password login
+    if (email && password) {
       const isValidPassword = await bcrypt.compare(password, user.password);
-      
       if (!isValidPassword) {
         return NextResponse.json(
           { error: 'Invalid credentials' },
           { status: 401 }
         );
       }
-      
-      // Return user without password
-      const { password: _, ...userWithoutPassword } = user;
-      
-      return NextResponse.json(userWithoutPassword);
-    } catch (prismaError) {
-      console.log('Prisma database error, falling back to in-memory database:', prismaError);
-      
-      // Fallback to in-memory database
-      try {
-        const user = await inMemoryDb.findUserByEmail(email);
-        
-        if (!user) {
-          return NextResponse.json(
-            { error: 'Invalid credentials' },
-            { status: 401 }
-          );
-        }
-        
-        // Check password
-        const isValidPassword = await bcrypt.compare(password, user.password);
-        
-        if (!isValidPassword) {
-          return NextResponse.json(
-            { error: 'Invalid credentials' },
-            { status: 401 }
-          );
-        }
-        
-        // Return user without password
-        const { password: _, ...userWithoutPassword } = user;
-        
-        return NextResponse.json(userWithoutPassword);
-      } catch (inMemoryError) {
-        console.error('In-memory database error:', inMemoryError);
-        return NextResponse.json(
-          { error: 'Failed to log in' },
-          { status: 500 }
-        );
-      }
     }
+
+    // Return user (without password)
+    const { password: _, ...userWithoutPassword } = user;
+    return NextResponse.json(userWithoutPassword);
   } catch (error) {
-    console.error('Error logging in:', error);
+    console.error('Login error:', error);
     return NextResponse.json(
-      { error: 'Failed to log in' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
 }
-
-module.exports = {
-  POST
-};

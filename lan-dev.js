@@ -1,4 +1,4 @@
-const { spawn } = require('child_process');
+import { spawn } from 'child_process';
 
 // Start Next.js dev server with LAN access and HTTPS
 const nextDev = spawn('npx', [

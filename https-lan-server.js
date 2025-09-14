@@ -1,15 +1,15 @@
-const express = require('express');
-const { createServer } = require('https');
-const { readFileSync } = require('fs');
-const { join } = require('path');
-const next = require('next');
+import express from 'express';
+import { createServer } from 'https';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import next from 'next';
 
 // Install express if not already installed
 try {
-  require.resolve('express');
+  await import('express');
 } catch (e) {
   console.log('Installing express...');
-  const { execSync } = require('child_process');
+  const { execSync } = await import('child_process');
   execSync('npm install express', { stdio: 'inherit' });
 }
 
@@ -24,8 +24,8 @@ app.prepare().then(() => {
   const expressApp = express();
   
   // Serve static files
-  expressApp.use('/_next', express.static(join(__dirname, '.next')));
-  expressApp.use('/public', express.static(join(__dirname, 'public')));
+  expressApp.use('/_next', express.static(join(process.cwd(), '.next')));
+  expressApp.use('/public', express.static(join(process.cwd(), 'public')));
   
   // Handle all other requests with Next.js
   expressApp.all('*', (req, res) => {
@@ -35,8 +35,8 @@ app.prepare().then(() => {
   // Create HTTPS server with self-signed certificate
   const server = createServer(
     {
-      key: readFileSync(join(__dirname, 'certificates', 'key.pem'), 'utf8'),
-      cert: readFileSync(join(__dirname, 'certificates', 'cert.pem'), 'utf8'),
+      key: readFileSync(join(process.cwd(), 'certificates', 'key.pem'), 'utf8'),
+      cert: readFileSync(join(process.cwd(), 'certificates', 'cert.pem'), 'utf8'),
     },
     expressApp
   );

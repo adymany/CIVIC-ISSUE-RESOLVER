@@ -2,46 +2,52 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { isAdmin, isAuthenticated, redirectToHome } from '@/lib/auth';
-import dynamic from 'next/dynamic';
+import { isAuthenticated, isUser, getUserRole } from '@/lib/auth';
 
-// Dynamically import the map component to avoid SSR issues
-const AdminMapWithNoSSR = dynamic(
-  () => import('../../components/AdminMapComponent'),
-  { ssr: false, loading: () => <div>Loading map...</div> }
-);
-
-export default function DashboardPage() {
+export default function UserReportsPage() {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
-  const [showMap, setShowMap] = useState(true); // Toggle for map visibility
   const router = useRouter();
 
-  // Check if user is authenticated and is an admin
+  // Check if user is authenticated and is a regular user
   useEffect(() => {
     // In a real application, you would check for a valid session/token
-    if (!isAuthenticated()) {
-      // Redirect to home page if not authenticated
-      router.push('/auth');
-      return;
-    }
-    
-    if (!isAdmin()) {
-      // Redirect to user reports page if not an admin
-      router.push('/report');
+    if (!isAuthenticated() || !isUser()) {
+      // Redirect to home page or show unauthorized message
+      router.push('/');
       return;
     }
   }, [router]);
 
-  // Fetch reports from API
+  // Fetch user's own reports from API
   useEffect(() => {
-    const fetchReports = async () => {
+    const fetchUserReports = async () => {
       try {
         setLoading(true);
-        const response = await fetch('/api/reports');
+        
+        // Get user ID from stored user data
+        let userId = null;
+        if (typeof window !== 'undefined') {
+          const userJson = localStorage.getItem('user') || sessionStorage.getItem('user');
+          if (userJson) {
+            try {
+              const user = JSON.parse(userJson);
+              userId = user.id;
+            } catch (e) {
+              console.error('Error parsing user data:', e);
+            }
+          }
+        }
+        
+        if (!userId) {
+          throw new Error('User not found');
+        }
+        
+        // Fetch only this user's reports
+        const response = await fetch(`/api/reports?userId=${userId}`);
         
         if (!response.ok) {
           throw new Error('Failed to fetch reports');
@@ -51,52 +57,17 @@ export default function DashboardPage() {
         setReports(data);
       } catch (err) {
         console.error('Error fetching reports:', err);
-        setError('Failed to load reports. Please try again.');
+        setError('Failed to load your reports. Please try again.');
       } finally {
         setLoading(false);
       }
     };
 
-    // Only fetch reports if user is authenticated and is an admin
-    if (isAuthenticated() && isAdmin()) {
-      fetchReports();
+    // Only fetch reports if user is authenticated and is a regular user
+    if (isAuthenticated() && isUser()) {
+      fetchUserReports();
     }
   }, []);
-
-  // Update report status
-  const updateReportStatus = async (id, newStatus) => {
-    try {
-      const response = await fetch(`/api/reports/${id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to update report');
-      }
-      
-      const updatedReport = await response.json();
-      
-      // Update the report in state
-      setReports(reports.map(report => 
-        report.id === id ? updatedReport : report
-      ));
-    } catch (err) {
-      console.error('Error updating report:', err);
-      setError('Failed to update report status. Please try again.');
-    }
-  };
-
-  // Filter reports based on status and search term
-  const filteredReports = reports.filter(report => {
-    const matchesFilter = filter === 'ALL' || report.status === filter;
-    const matchesSearch = report.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          report.description.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesFilter && matchesSearch;
-  });
 
   // Function to check if image URL is valid
   const isValidImageUrl = (url) => {
@@ -110,12 +81,20 @@ export default function DashboardPage() {
     return true;
   };
 
+  // Filter reports based on status and search term
+  const filteredReports = reports.filter(report => {
+    const matchesFilter = filter === 'ALL' || report.status === filter;
+    const matchesSearch = report.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          report.description.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesFilter && matchesSearch;
+  });
+
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-6 text-gray-900 dark:text-white">Admin Dashboard</h1>
+        <h1 className="text-3xl font-bold mb-6 text-gray-900 dark:text-white">My Reports</h1>
         <div className="text-center py-12">
-          <p className="text-gray-700 dark:text-gray-300">Loading reports...</p>
+          <p className="text-gray-700 dark:text-gray-300">Loading your reports...</p>
         </div>
       </div>
     );
@@ -124,32 +103,18 @@ export default function DashboardPage() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Admin Dashboard</h1>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">My Reports</h1>
         <button
-          onClick={() => setShowMap(!showMap)}
-          className="btn-pill btn-primary-gradient"
+          onClick={() => router.push('/report')}
+          className="btn-primary-gradient btn-pill"
         >
-          {showMap ? 'Hide Map' : 'Show Map'}
+          New Report
         </button>
       </div>
       
       {error && (
         <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-6">
           {error}
-        </div>
-      )}
-      
-      {showMap && (
-        <div className="mb-8 card">
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Report Locations</h2>
-            <p className="text-gray-600 dark:text-gray-300 text-sm">
-              All reported issues are shown on the map below
-            </p>
-          </div>
-          <div className="p-4">
-            <AdminMapWithNoSSR reports={filteredReports} />
-          </div>
         </div>
       )}
       
@@ -210,7 +175,7 @@ export default function DashboardPage() {
         <div>
           <input
             type="text"
-            placeholder="Search reports..."
+            placeholder="Search my reports..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-full w-full md:w-64 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
@@ -256,43 +221,6 @@ export default function DashboardPage() {
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-4">
                 Reported: {new Date(report.createdAt).toLocaleDateString()}
               </div>
-              
-              <div className="flex flex-wrap gap-2">
-                {report.status === 'PENDING' && (
-                  <>
-                    <button
-                      onClick={() => updateReportStatus(report.id, 'IN_PROGRESS')}
-                      className="flex-1 btn-pill bg-blue-500 text-white hover:bg-blue-600"
-                    >
-                      Start Work
-                    </button>
-                    <button
-                      onClick={() => updateReportStatus(report.id, 'REJECTED')}
-                      className="flex-1 btn-pill bg-red-500 text-white hover:bg-red-600"
-                    >
-                      Reject
-                    </button>
-                  </>
-                )}
-                
-                {report.status === 'IN_PROGRESS' && (
-                  <button
-                    onClick={() => updateReportStatus(report.id, 'RESOLVED')}
-                    className="flex-1 btn-pill bg-green-500 text-white hover:bg-green-600"
-                  >
-                    Mark Resolved
-                  </button>
-                )}
-                
-                {(report.status === 'RESOLVED' || report.status === 'REJECTED') && (
-                  <button
-                    onClick={() => updateReportStatus(report.id, 'PENDING')}
-                    className="flex-1 btn-pill bg-gray-500 text-white hover:bg-gray-600"
-                  >
-                    Reopen
-                  </button>
-                )}
-              </div>
             </div>
           </div>
         ))}
@@ -300,7 +228,13 @@ export default function DashboardPage() {
       
       {filteredReports.length === 0 && (
         <div className="text-center py-12">
-          <p className="text-gray-500 dark:text-gray-400">No reports found matching your criteria.</p>
+          <p className="text-gray-500 dark:text-gray-400">You haven't submitted any reports yet.</p>
+          <button
+            onClick={() => router.push('/report')}
+            className="mt-4 btn-primary-gradient btn-pill"
+          >
+            Submit a Report
+          </button>
         </div>
       )}
     </div>

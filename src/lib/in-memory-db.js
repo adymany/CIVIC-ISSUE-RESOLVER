@@ -15,6 +15,11 @@ class InMemoryDatabase {
     return user || null;
   }
 
+  async findUserByMobile(mobile) {
+    const user = this.users.find(u => u.mobile === mobile);
+    return user || null;
+  }
+
   async findUserById(id) {
     const user = this.users.find(u => u.id === id);
     return user || null;
@@ -74,6 +79,11 @@ class InMemoryDatabase {
     return this.reports[reportIndex];
   }
 
+  // Add the missing updateReportStatus method
+  async updateReportStatus(id, status) {
+    return await this.updateReport(id, { status });
+  }
+
   async findReports(where = {}) {
     return this.reports.filter(report => {
       // Simple filtering implementation
@@ -91,6 +101,7 @@ class InMemoryDatabase {
     if (!adminExists) {
       await this.createUser({
         email: 'admin@civicreporter.com',
+        mobile: '9876543210',
         password: '$2a$10$rZ7znSJhPdC9/UzX5BF6Ae5FQRyQOKH78ChA7oB4cwh/U4q.7EjaG', // admin123
         name: 'Admin User',
         role: 'ADMIN'
@@ -102,6 +113,7 @@ class InMemoryDatabase {
     if (!userExists) {
       await this.createUser({
         email: 'user@civicreporter.com',
+        mobile: '9876543211',
         password: '$2a$10$8K1p/a0dURXAm7QiTRqNa.E3YPWs8UkrpC497F5rG1EtI1L19g3O6', // user123
         name: 'Regular User',
         role: 'USER'
@@ -113,6 +125,7 @@ class InMemoryDatabase {
     if (!anonymousExists) {
       await this.createUser({
         email: 'anonymous@civicreporter.com',
+        mobile: '0000000000',
         password: '$2a$10$8K1p/a0dURXAm7QiTRqNa.E3YPWs8UkrpC497F5rG1EtI1L19g3O6', // anonymous
         name: 'Anonymous User',
         role: 'USER'
@@ -127,5 +140,4 @@ const inMemoryDb = new InMemoryDatabase();
 // Initialize with default data
 inMemoryDb.initialize();
 
-module.exports = inMemoryDb;
-module.exports.default = inMemoryDb;
+export default inMemoryDb;

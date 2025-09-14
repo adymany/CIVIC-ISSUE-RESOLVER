@@ -1,11 +1,11 @@
-const { execSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
+import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 
 console.log('Setting up the Civic Reporting System database...');
 
 // Check if .env file exists, if not create it
-const envPath = path.join(__dirname, '.env');
+const envPath = path.join(process.cwd(), '.env');
 if (!fs.existsSync(envPath)) {
   const envContent = `# Database connection string - Update this with your actual database credentials
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/civic_reporting_system?schema=public"
