@@ -26,6 +26,7 @@ model Report {
   imageUrl    String?
   latitude    Float
   longitude   Float
+  address     String?
   status      ReportStatus @default(PENDING)
   userId      String
   createdAt   DateTime     @default(now())

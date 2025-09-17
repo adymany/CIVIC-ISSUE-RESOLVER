@@ -8,6 +8,9 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata = {
   title: "Civic Issue Reporter",
   description: "Report and track civic issues in your community",
+  icons: {
+    icon: '/favicon.png',
+  },
 };
 
 export default function RootLayout({ children }) {

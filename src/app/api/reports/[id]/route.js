@@ -81,3 +81,32 @@ export async function GET(request, { params }) {
     );
   }
 }
+
+// DELETE /api/reports/[id] - Delete a specific report
+export async function DELETE(request, { params }) {
+  try {
+    // Await params before using
+    const { id } = await params;
+    
+    // Use the database adapter (PostgreSQL via Prisma)
+    const report = await dbAdapter.findReportById(id);
+    
+    if (!report) {
+      return NextResponse.json(
+        { error: 'Report not found' },
+        { status: 404 }
+      );
+    }
+    
+    // Delete the report
+    await dbAdapter.deleteReport(id);
+    
+    return NextResponse.json({ message: 'Report deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting report:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete report' },
+      { status: 500 }
+    );
+  }
+}

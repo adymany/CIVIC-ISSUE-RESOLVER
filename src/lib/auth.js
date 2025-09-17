@@ -6,7 +6,7 @@ export function isAuthenticated() {
   // In a real application, you would check for a valid session or JWT token
   if (typeof window !== 'undefined') {
     // Check if there's a user object in localStorage or sessionStorage
-    return !!localStorage.getItem('user') || !!sessionStorage.getItem('user');
+    return !!(localStorage.getItem('user') || sessionStorage.getItem('user'));
   }
   return false;
 }
@@ -21,6 +21,8 @@ export function getUserRole() {
         return user.role || 'USER';
       } catch (e) {
         console.error('Error parsing user data:', e);
+        // Clear invalid user data
+        clearUser();
       }
     }
   }
@@ -61,6 +63,8 @@ export function getCurrentUserId() {
         const userData = JSON.parse(user);
         return userData.id || null;
       } catch (e) {
+        // Clear invalid user data
+        clearUser();
         return null;
       }
     }
@@ -117,6 +121,9 @@ export async function login(email, password, mobile) {
     throw new Error(data.error || 'Failed to login');
   }
   
+  // Store user data
+  storeUser(data.user);
+  
   return data;
 }
 
@@ -160,14 +167,26 @@ export async function verifyOTP(mobile, otp) {
 
 // Logout function
 export async function logout() {
-  // In a real implementation, you would clear the session/cookie
-  // For now, we'll just return a resolved promise
+  // Clear user data
+  clearUser();
+  // In a real implementation, you would also invalidate the session/cookie on the server
   return Promise.resolve();
 }
 
 // Get current user (mock implementation)
 export async function getCurrentUser() {
-  // In a real implementation, you would check the session/cookie
-  // For now, we'll return null to indicate no user is logged in
+  if (typeof window !== 'undefined') {
+    const userJson = localStorage.getItem('user') || sessionStorage.getItem('user');
+    if (userJson) {
+      try {
+        return JSON.parse(userJson);
+      } catch (e) {
+        console.error('Error parsing user data:', e);
+        // Clear invalid user data
+        clearUser();
+        return null;
+      }
+    }
+  }
   return null;
 }

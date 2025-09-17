@@ -1,21 +1,21 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import 'leaflet/dist/leaflet.css';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { isAuthenticated, getCurrentUserId, redirectToLogin } from '@/lib/auth';
 
-// Dynamically import the map component to avoid SSR issues
+// Dynamically import the Google Maps component to avoid SSR issues
 const MapWithNoSSR = dynamic(
-  () => import('../../components/MapComponent'),
+  () => import('../../components/GoogleMapComponent'),
   { ssr: false, loading: () => <div>Loading map...</div> }
 );
 
 // MapClickHandler component
 const MapClickHandler = ({ 
   setLocation,
-  setMapCenter
+  setMapCenter,
+  setAddress
 }) => {
   // Create a stable reference for the event handlers
   const eventHandlers = useMemo(() => ({
@@ -25,8 +25,9 @@ const MapClickHandler = ({
         longitude: e.latlng.lng,
       });
       setMapCenter([e.latlng.lat, e.latlng.lng]);
+      setAddress('');
     },
-  }), [setLocation, setMapCenter]);
+  }), [setLocation, setMapCenter, setAddress]);
 
   // We'll handle events in the MapComponent instead
   return null;
@@ -43,7 +44,8 @@ const MapComponent = ({
   mapCenter, 
   location, 
   setLocation, 
-  setMapCenter 
+  setMapCenter,
+  setAddress
 }) => {
   return (
     <div style={{ height: '400px', width: '100%' }} className="rounded-lg border border-gray-300">
@@ -52,6 +54,7 @@ const MapComponent = ({
         location={location}
         setLocation={setLocation}
         setMapCenter={setMapCenter}
+        setAddress={setAddress}
       />
     </div>
   );
@@ -70,6 +73,11 @@ export default function ReportPage() {
     }
   }, [router]);
   
+  // Clear camera error on component mount
+  useEffect(() => {
+    setCameraError('');
+  }, []);
+  
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('new'); // 'new' or 'history'
@@ -77,6 +85,7 @@ export default function ReportPage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [image, setImage] = useState(null);
+  const [address, setAddress] = useState('');
   const [location, setLocation] = useState({
     latitude: null,
     longitude: null,
@@ -123,6 +132,10 @@ export default function ReportPage() {
     // Cleanup function to stop media tracks when component unmounts
     return () => {
       stopMediaTracks();
+      // Clear any existing video stream
+      if (videoRef.current && videoRef.current.srcObject) {
+        videoRef.current.srcObject = null;
+      }
     };
   }, []);
 
@@ -214,13 +227,25 @@ export default function ReportPage() {
       
       // Request location with different options to improve success rate
       navigator.geolocation.getCurrentPosition(
-        (position) => {
+        async (position) => {
           const newLocation = {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
           };
           setLocation(newLocation);
           setMapCenter([position.coords.latitude, position.coords.longitude]);
+          
+          // Get address from coordinates
+          try {
+            // Import the getAddressFromCoordinates function dynamically
+            const { getAddressFromCoordinates } = await import('@/lib/google-maps');
+            const address = await getAddressFromCoordinates(newLocation.latitude, newLocation.longitude);
+            setAddress(address || '');
+          } catch (err) {
+            console.error('Error getting address:', err);
+            setAddress('');
+          }
+          
           setLocationError('');
         },
         (err) => {
@@ -291,102 +316,24 @@ export default function ReportPage() {
     setError(errorMessage);
   };
 
-  // Access camera with multiple fallback options
+  // Simplified camera access - back to basics
   const startCamera = async () => {
     try {
-      // Check if we're on a secure context (but allow localhost)
-      const isSecureContext = window.location.protocol === 'https:' || 
-                             window.location.hostname === 'localhost' || 
-                             window.location.hostname === '127.0.0.1' ||
-                             window.location.hostname === '[::1]';
-      
-      if (!isSecureContext && window.location.protocol !== 'https:') {
-        const errorMessage = 'Camera access requires a secure connection (HTTPS). Please access this application through HTTPS or localhost for camera functionality to work.';
-        setCameraError(errorMessage);
-        setError(errorMessage);
-        return;
-      }
-      
       // Clear any previous camera errors
       setCameraError('');
       
       // Stop any existing stream
       stopMediaTracks();
       
-      // Try different camera configurations based on device type
-      const constraints = isMobile ? [
-        // Mobile-first configurations
-        { 
-          video: { 
-            facingMode: 'environment',
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          } 
-        },
-        // Fallback 1: Front camera
-        { 
-          video: { 
-            facingMode: 'user',
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          } 
-        },
-        // Fallback 2: Any rear camera
-        { 
-          video: { facingMode: 'environment' } 
-        },
-        // Fallback 3: Any front camera
-        { 
-          video: { facingMode: 'user' } 
-        },
-        // Fallback 4: Any camera
-        { 
-          video: true 
-        }
-      ] : [
-        // Desktop-first configurations
-        { 
-          video: { 
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          } 
-        },
-        // Fallback 1: Any camera
-        { 
-          video: true 
-        }
-      ];
+      // Simple camera access with basic constraints
+      const constraints = { video: true };
       
-      let stream = null;
-      
-      // Try each configuration until one works
-      for (const constraint of constraints) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(constraint);
-          break; // If successful, break out of the loop
-        } catch (err) {
-          console.warn(`Camera constraint failed:`, constraint, err);
-          // Continue to next constraint
-        }
-      }
-      
-      if (!stream) {
-        throw new Error('Could not access camera with any configuration');
-      }
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       
       // Set the stream to the video element
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
-        
-        // For mobile devices, we might need to play the video to start the stream
-        if (isMobile) {
-          try {
-            await videoRef.current.play();
-          } catch (err) {
-            console.warn('Could not auto-play video on mobile:', err);
-          }
-        }
       }
     } catch (err) {
       console.error('Error accessing camera:', err);
@@ -395,13 +342,11 @@ export default function ReportPage() {
       if (err.name === 'NotAllowedError') {
         errorMessage += 'Camera access was denied. Please allow camera access in your browser settings.';
       } else if (err.name === 'NotFoundError' || err.name === 'OverconstrainedError') {
-        errorMessage += 'No camera found or camera not compatible with requested constraints.';
+        errorMessage += 'No camera found or camera not compatible.';
       } else if (err.name === 'NotReadableError') {
         errorMessage += 'Camera is already in use by another application.';
-      } else if (!isHttps) {
-        errorMessage += 'Camera access requires a secure connection (HTTPS). Please access this application through HTTPS or localhost.';
       } else {
-        errorMessage += 'An unknown error occurred while accessing the camera.';
+        errorMessage += 'An unknown error occurred: ' + (err.message || 'Unknown error');
       }
       
       setCameraError(errorMessage);
@@ -418,77 +363,143 @@ export default function ReportPage() {
     }
   };
 
-  // Capture image from video stream
+  // Capture image from video stream - simplified version with compression
   const captureImage = () => {
-    if (videoRef.current && canvasRef.current) {
+    try {
+      if (!videoRef.current || !canvasRef.current) {
+        setCameraError('Camera not initialized properly.');
+        return;
+      }
+      
       const video = videoRef.current;
       const canvas = canvasRef.current;
       const context = canvas.getContext('2d');
       
-      // Set canvas dimensions to match video
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      // Check if video is ready
+      if (video.readyState < 2) { // HAVE_CURRENT_DATA
+        setCameraError('Video stream is not ready yet. Please wait for the camera to initialize and try again.');
+        return;
+      }
+      
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        setCameraError('Video stream not ready. Please wait for the camera to initialize and try again.');
+        return;
+      }
+      
+      // Set canvas dimensions to a reasonable size (max 800px on longest side)
+      let width = video.videoWidth;
+      let height = video.videoHeight;
+      const maxWidth = 800;
+      const maxHeight = 800;
+      
+      if (width > height) {
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxHeight) {
+          width = (width * maxHeight) / height;
+          height = maxHeight;
+        }
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
       
       // Draw video frame to canvas
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      context.drawImage(video, 0, 0, width, height);
       
-      // Convert to data URL and set as image
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.8); // Use JPEG with quality 80% to reduce size
+      // Convert to data URL with compression (quality 0.5 = 50%)
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
       setImage(dataUrl);
       
       // Stop the camera
       stopMediaTracks();
+    } catch (error) {
+      console.error('Error capturing image:', error);
+      setCameraError('Failed to capture image: ' + (error.message || 'Unknown error'));
     }
   };
 
-  // Handle image file selection
+  // Handle image file selection with compression
   const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      // Check file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        setCameraError('Image size must be less than 5MB');
-        return;
-      }
-      
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        // Compress the image to reduce size
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          
-          // Calculate new dimensions (max 1200px on longest side)
-          let { width, height } = img;
-          const maxWidth = 1200;
-          const maxHeight = 1200;
-          
-          if (width > height) {
-            if (width > maxWidth) {
-              height = (height * maxWidth) / width;
-              width = maxWidth;
-            }
-          } else {
-            if (height > maxHeight) {
-              width = (width * maxHeight) / height;
-              height = maxHeight;
-            }
+    try {
+      const file = e.target.files[0];
+      if (file) {
+        // Check file type
+        if (!file.type.match('image.*')) {
+          setCameraError('Please select a valid image file (JPEG, PNG, etc.)');
+          return;
+        }
+        
+        // Check file size (max 3MB)
+        if (file.size > 3 * 1024 * 1024) {
+          setCameraError('Image size must be less than 5MB');
+          return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            // Compress the image to reduce size
+            const img = new Image();
+            img.onload = () => {
+              try {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                // Calculate new dimensions (max 800px on longest side)
+                let { width, height } = img;
+                const maxWidth = 800;
+                const maxHeight = 800;
+                
+                if (width > height) {
+                  if (width > maxWidth) {
+                    height = (height * maxWidth) / width;
+                    width = maxWidth;
+                  }
+                } else {
+                  if (height > maxHeight) {
+                    width = (width * maxHeight) / height;
+                    height = maxHeight;
+                  }
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                
+                // Draw resized image
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                // Get compressed data URL (quality 0.5 = 50%)
+                const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.5);
+                setImage(compressedDataUrl);
+                setCameraError(''); // Clear any previous errors
+              } catch (imgError) {
+                console.error('Error processing image:', imgError);
+                setCameraError('Error processing image: ' + (imgError.message || 'Unknown error'));
+              }
+            };
+            img.onerror = (imgError) => {
+              console.error('Error loading image:', imgError);
+              setCameraError('Error loading image file');
+            };
+            img.src = e.target.result;
+          } catch (readerError) {
+            console.error('Error reading file:', readerError);
+            setCameraError('Error reading file: ' + (readerError.message || 'Unknown error'));
           }
-          
-          canvas.width = width;
-          canvas.height = height;
-          
-          // Draw resized image
-          ctx.drawImage(img, 0, 0, width, height);
-          
-          // Get compressed data URL
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-          setImage(compressedDataUrl);
         };
-        img.src = e.target.result;
-      };
-      reader.readAsDataURL(file);
+        reader.onerror = (readerError) => {
+          console.error('Error reading file:', readerError);
+          setCameraError('Error reading file');
+        };
+        reader.readAsDataURL(file);
+      }
+    } catch (error) {
+      console.error('Error handling image change:', error);
+      setCameraError('Error handling image: ' + (error.message || 'Unknown error'));
     }
   };
 
@@ -521,6 +532,7 @@ export default function ReportPage() {
           imageUrl: image,
           latitude: location.latitude,
           longitude: location.longitude,
+          address: address || null, // Include address in the request
         }),
       });
       
@@ -542,6 +554,7 @@ export default function ReportPage() {
       setTitle('');
       setDescription('');
       setImage(null);
+      setAddress('');
       setLocation({
         latitude: null,
         longitude: null,
@@ -674,34 +687,7 @@ export default function ReportPage() {
           )}
           
           <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
-            <div className="mb-6">
-              <label htmlFor="title" className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
-                Issue Title *
-              </label>
-              <input
-                type="text"
-                id="title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-gray-900 dark:text-white bg-white dark:bg-gray-800"
-                placeholder="Briefly describe the issue"
-              />
-            </div>
-            
-            <div className="mb-6">
-              <label htmlFor="description" className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
-                Description *
-              </label>
-              <textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={4}
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-gray-900 dark:text-white bg-white dark:bg-gray-800"
-                placeholder="Provide detailed information about the issue"
-              />
-            </div>
-            
+            {/* Map and address section - moved to the top */}
             <div className="mb-6">
               <label className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
                 Location *
@@ -746,10 +732,27 @@ export default function ReportPage() {
                 mapCenter={mapCenter} 
                 location={location} 
                 setLocation={setLocation} 
-                setMapCenter={setMapCenter} 
+                setMapCenter={setMapCenter}
+                setAddress={setAddress}
               />
+              
+              {/* Address field moved to be below the map */}
+              <div className="mt-4">
+                <label htmlFor="address" className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
+                  Address
+                </label>
+                <input
+                  type="text"
+                  id="address"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-gray-900 dark:text-white bg-white dark:bg-gray-800"
+                  placeholder="Enter address or click on the map to auto-detect"
+                />
+              </div>
             </div>
             
+            {/* Photo section - moved to below the map like it used to be */}
             <div className="mb-8">
               <label className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
                 Photo
@@ -758,7 +761,7 @@ export default function ReportPage() {
                 <div className="flex-1">
                   {image ? (
                     <div className="mb-4">
-                      <img src={image} alt="Captured issue" className="w-full h-48 object-cover rounded-xl border border-gray-300 dark:border-gray-600" />
+                      <img src={image} alt="Captured issue" className="w-full object-cover rounded-xl border border-gray-300 dark:border-gray-600" style={{ height: '400px' }} />
                       <button
                         type="button"
                         onClick={() => setImage(null)}
@@ -767,30 +770,27 @@ export default function ReportPage() {
                         Remove Photo
                       </button>
                     </div>
+                  ) : isCameraSupported ? (
+                    <div className="mb-4">
+                      <video 
+                        ref={videoRef} 
+                        autoPlay 
+                        playsInline 
+                        muted
+                        className="w-full object-cover rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-200 dark:bg-gray-700"
+                        style={{ height: '400px' }}
+                      />
+                      <canvas ref={canvasRef} className="hidden" />
+                    </div>
                   ) : (
-                    <>
-                      {isCameraSupported ? (
-                        <div className="mb-4">
-                          <video 
-                            ref={videoRef} 
-                            autoPlay 
-                            playsInline 
-                            muted
-                            className="w-full h-48 object-cover rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-200 dark:bg-gray-700"
-                          />
-                          <canvas ref={canvasRef} className="hidden" />
-                        </div>
-                      ) : (
-                        <div className="mb-4 p-8 text-center bg-gray-200 dark:bg-gray-700 rounded-xl border border-gray-300 dark:border-gray-600">
-                          <svg className="mx-auto h-12 w-12 text-gray-600 dark:text-gray-300" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                            <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                          <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
-                            {cameraError || 'Camera not supported or access denied'}
-                          </p>
-                        </div>
-                      )}
-                    </>
+                    <div className="mb-4 p-8 text-center bg-gray-200 dark:bg-gray-700 rounded-xl border border-gray-300 dark:border-gray-600">
+                      <svg className="mx-auto h-12 w-12 text-gray-600 dark:text-gray-300" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                        <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                        {cameraError || 'Camera not supported or access denied'}
+                      </p>
+                    </div>
                   )}
                   
                   <div className="flex flex-wrap gap-2">
@@ -843,13 +843,42 @@ export default function ReportPage() {
                     )}
                   </div>
                   
-                  {cameraError && (
+                  {(cameraError && !image) && (
                     <div className="text-sm text-red-700 dark:text-red-400 mt-2">
                       {cameraError}
                     </div>
                   )}
                 </div>
               </div>
+            </div>
+            
+            {/* Title and description moved to the end */}
+            <div className="mb-6">
+              <label htmlFor="title" className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
+                Issue Title *
+              </label>
+              <input
+                type="text"
+                id="title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-gray-900 dark:text-white bg-white dark:bg-gray-800"
+                placeholder="Briefly describe the issue"
+              />
+            </div>
+            
+            <div className="mb-6">
+              <label htmlFor="description" className="block text-sm font-bold text-gray-900 dark:text-white mb-1">
+                Description *
+              </label>
+              <textarea
+                id="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={4}
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-gray-900 dark:text-white bg-white dark:bg-gray-800"
+                placeholder="Provide detailed information about the issue"
+              />
             </div>
             
             <div className="flex justify-end">

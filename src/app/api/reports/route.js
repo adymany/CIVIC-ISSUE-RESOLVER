@@ -9,14 +9,40 @@ function cleanImageData(imageUrl) {
   if (imageUrl.startsWith('data:image/')) {
     // If it's too long, it might be corrupted
     if (imageUrl.length > 100000) { // 100KB limit
-      console.warn('Image data URL is too long, marking as corrupted');
-      return '[CORRUPTED_DATA]';
+      console.warn('Image data URL is too long, rejecting');
+      return null; // Return null instead of a corrupted marker
     }
-    return imageUrl;
+    
+    // Additional validation for base64 data URLs
+    try {
+      // Check if it's a valid data URL format
+      const dataUrlRegex = /^data:image\/(png|jpg|jpeg|gif);base64,[A-Za-z0-9+/=]+$/;
+      if (!dataUrlRegex.test(imageUrl)) {
+        console.warn('Invalid image data URL format');
+        return null;
+      }
+      
+      return imageUrl;
+    } catch (error) {
+      console.warn('Error validating image data URL:', error.message);
+      return null;
+    }
   }
   
-  // For regular URLs, return as is
-  return imageUrl;
+  // For regular URLs, validate they look like URLs
+  if (imageUrl.startsWith('http')) {
+    try {
+      new URL(imageUrl); // This will throw if it's not a valid URL
+      return imageUrl;
+    } catch (error) {
+      console.warn('Invalid image URL:', imageUrl);
+      return null;
+    }
+  }
+  
+  // If it's neither a data URL nor a regular URL, it's likely corrupted
+  console.warn('Unrecognized image URL format:', imageUrl);
+  return null;
 }
 
 // POST /api/reports - Create a new report
@@ -25,7 +51,7 @@ export async function POST(request) {
     const body = await request.json();
     
     // In a real implementation, you would validate the data here
-    const { title, description, imageUrl, latitude, longitude, userId } = body;
+    const { title, description, imageUrl, latitude, longitude, address, userId } = body;
     
     // Validate required fields
     if (!title || !description || !latitude || !longitude) {
@@ -35,17 +61,52 @@ export async function POST(request) {
       );
     }
     
+    // Validate latitude and longitude are numbers
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+    
+    if (isNaN(lat) || isNaN(lng)) {
+      return NextResponse.json(
+        { error: 'Latitude and longitude must be valid numbers' },
+        { status: 400 }
+      );
+    }
+    
+    // Validate latitude and longitude ranges
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return NextResponse.json(
+        { error: 'Latitude must be between -90 and 90, longitude between -180 and 180' },
+        { status: 400 }
+      );
+    }
+    
     // Clean and validate image data
     const cleanedImageUrl = cleanImageData(imageUrl);
     
     // Handle the case where no user is provided or user doesn't exist
     let reportData = {
-      title,
-      description,
+      title: title.trim(),
+      description: description.trim(),
       imageUrl: cleanedImageUrl,
-      latitude: parseFloat(latitude),
-      longitude: parseFloat(longitude),
+      latitude: lat,
+      longitude: lng,
+      address: address || null, // Include address in report data
     };
+    
+    // Validate title and description lengths
+    if (reportData.title.length < 5 || reportData.title.length > 100) {
+      return NextResponse.json(
+        { error: 'Title must be between 5 and 100 characters' },
+        { status: 400 }
+      );
+    }
+    
+    if (reportData.description.length < 10 || reportData.description.length > 1000) {
+      return NextResponse.json(
+        { error: 'Description must be between 10 and 1000 characters' },
+        { status: 400 }
+      );
+    }
     
     // If no userId provided, create/get anonymous user
     if (!userId) {

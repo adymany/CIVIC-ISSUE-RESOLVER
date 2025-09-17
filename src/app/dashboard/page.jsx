@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import { isAdmin, isAuthenticated, redirectToHome } from '@/lib/auth';
 import dynamic from 'next/dynamic';
 
-// Dynamically import the map component to avoid SSR issues
+// Dynamically import the Google Maps component to avoid SSR issues
 const AdminMapWithNoSSR = dynamic(
-  () => import('../../components/AdminMapComponent'),
+  () => import('../../components/AdminGoogleMapComponent'),
   { ssr: false, loading: () => <div>Loading map...</div> }
 );
 
@@ -87,6 +87,30 @@ export default function DashboardPage() {
     } catch (err) {
       console.error('Error updating report:', err);
       setError('Failed to update report status. Please try again.');
+    }
+  };
+
+  // Delete report
+  const deleteReport = async (id) => {
+    // Confirm deletion
+    if (!confirm('Are you sure you want to delete this report? This action cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/reports/${id}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete report');
+      }
+      
+      // Remove the report from state
+      setReports(reports.filter(report => report.id !== id));
+    } catch (err) {
+      console.error('Error deleting report:', err);
+      setError('Failed to delete report. Please try again.');
     }
   };
 
@@ -253,6 +277,11 @@ export default function DashboardPage() {
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
                 Location: {report.latitude.toFixed(4)}, {report.longitude.toFixed(4)}
               </div>
+              {report.address && (
+                <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                  Address: {report.address}
+                </div>
+              )}
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-4">
                 Reported: {new Date(report.createdAt).toLocaleDateString()}
               </div>
@@ -285,12 +314,20 @@ export default function DashboardPage() {
                 )}
                 
                 {(report.status === 'RESOLVED' || report.status === 'REJECTED') && (
-                  <button
-                    onClick={() => updateReportStatus(report.id, 'PENDING')}
-                    className="flex-1 btn-pill bg-gray-500 text-white hover:bg-gray-600"
-                  >
-                    Reopen
-                  </button>
+                  <>
+                    <button
+                      onClick={() => updateReportStatus(report.id, 'PENDING')}
+                      className="flex-1 btn-pill bg-gray-500 text-white hover:bg-gray-600"
+                    >
+                      Reopen
+                    </button>
+                    <button
+                      onClick={() => deleteReport(report.id)}
+                      className="flex-1 btn-pill bg-red-700 text-white hover:bg-red-800"
+                    >
+                      Delete
+                    </button>
+                  </>
                 )}
               </div>
             </div>
